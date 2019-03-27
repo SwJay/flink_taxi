@@ -1,11 +1,10 @@
 package flinkDemo
 
-import java.util.stream.Collector
-
 import org.apache.flink.api.common.functions.AggregateFunction
 import org.apache.flink.streaming.api.TimeCharacteristic
 import org.apache.flink.streaming.api.scala.{DataStream, StreamExecutionEnvironment}
 import org.apache.flink.api.scala._
+import org.apache.flink.streaming.api.windowing.assigners.SlidingEventTimeWindows
 import org.apache.flink.streaming.api.windowing.time.Time
 
 import scala.collection.mutable
@@ -29,12 +28,12 @@ object flinkDemo {
 
     override def getResult(accumulator: ResultStats):String = {
       val current = new Array[Int](11)
-      val result = new mutable.StringBuilder()
+      val result = new mutable.StringBuilder("\ngird,current,average\n")
       for(tuple <- accumulator.locationMap){
         current(tuple._2) += 1
       }
       for (i <- 1 to 10){
-        result.append("grid%d\t| current total: %d; average for 10 minutes: %.2f.\n".format(i, current(i), accumulator.stats(i) / 6.toDouble))
+        result.append("%d,%d,%.2f\n".format(i, current(i), accumulator.stats(i) / 6.toDouble))
       }
       result.toString()
     }
@@ -51,10 +50,10 @@ object flinkDemo {
   def main(args: Array[String]): Unit = {
 
     val env = StreamExecutionEnvironment.getExecutionEnvironment
-
+    env.setParallelism(1)
     env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime)
 
-    val source: DataStream[String] = env.readTextFile("./data/data1")
+    val source: DataStream[String] = env.readTextFile("./data")
 
     val stream = source.map(value => {
       val columns = value.split(",")
@@ -64,8 +63,9 @@ object flinkDemo {
 
     val resultStream = stream.assignAscendingTimestamps( _.time )
       .map(t => (t.license, t.location))
-      .timeWindowAll(Time.seconds(2))//, Time.seconds(3))
+      .windowAll(SlidingEventTimeWindows.of(Time.seconds(4), Time.seconds(2)))
       .aggregate(new TaxiStats)
+
 
     resultStream.print//writeAsText("./out")
     env.execute("flinkSucks")
